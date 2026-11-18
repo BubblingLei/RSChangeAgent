@@ -34,6 +34,13 @@ python algorithms/snunet/convert_checkpoint.py --source algorithms/snunet/checkp
 `forward` 与固定上游版本的 `forward` 都只使用 `ca/ca1`。转换时把这六个
 未使用的张量保存在 `unused_legacy_state` 字段，推理用 `state_dict` 仍严格加载，
 其他未知参数、缺失参数或形状不匹配不会被静默忽略。
+
+转换还必须保存无参数的池化配置：官方旧 CDD 完整模型的 `ca/ca1.max_pool`
+虽然名称含 max，实际对象是 `AdaptiveAvgPool2d(1)`，而当前上游源码改成了
+`AdaptiveMaxPool2d(1)`。只保存 state_dict 会漏掉这一差异并改变预测。
+本转换器保存 `model_configuration.attention_pooling`，推理时恢复它；
+旧版转换产物如果缺少这份配置会明确拒绝加载，需要从原始 `.pt` 重新转换。
+已增加原完整模型与转换重建模型的前向输出一致性回归测试。
 若你已有同结构纯 state_dict，可以在推理时直接指定其路径，无需转换。
 第三方镜像权重需要独立核实来源，不应仅凭同名文件标作官方。
 

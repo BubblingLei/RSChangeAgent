@@ -24,6 +24,7 @@ from tools.snunet_tool import SNUNetTool
 
 class FakeDetector:
     device = torch.device('cpu')
+    configuration = {}
 
     def detect(self, before, after):
         mask = np.zeros((256, 256), dtype=np.uint8)
@@ -106,6 +107,8 @@ class SNUNetContractTests(unittest.TestCase):
         # RANDOM parameters: proves compatibility, not model quality.
         weight, legacy = self.root / 'random.pth', self.root / 'random.pt'
         model = SNUNet_ECAM(in_ch=3, out_ch=2)
+        for name in ('ca', 'ca1'):
+            getattr(model, name).max_pool = torch.nn.AdaptiveAvgPool2d(1)
         # Official CDD checkpoint also stores these modules, unused by forward.
         for index in (2, 3, 4):
             model.add_module(f'ca{index}', upstream_model.ChannelAttention(32, ratio=4))
@@ -130,6 +133,15 @@ class SNUNetContractTests(unittest.TestCase):
             self.assertTrue(torch.equal(tensor, model.state_dict()[name]))
         self.assertFalse(any(key.startswith(('ca2.', 'ca3.', 'ca4.')) for key in converted['state_dict']))
         detector = SNUNet(weight, device='cuda' if torch.cuda.is_available() else 'cpu')
+        self.assertIsInstance(detector.model.ca.max_pool, torch.nn.AdaptiveAvgPool2d)
+        self.assertIsInstance(detector.model.ca1.max_pool, torch.nn.AdaptiveAvgPool2d)
+        # state_dict equality alone cannot catch parameter-free architecture drift.
+        original = model.to(detector.device).eval()
+        generator = torch.Generator(device='cpu').manual_seed(27)
+        a = (torch.rand((1, 3, 64, 64), generator=generator) * 255).to(detector.device)
+        b = (torch.rand((1, 3, 64, 64), generator=generator) * 255).to(detector.device)
+        with torch.inference_mode():
+            torch.testing.assert_close(original(a, b)[-1], detector.model(a, b)[-1], rtol=0, atol=0)
         mask = detector.detect(str(self.before), str(self.after))
         self.assertEqual(mask.shape, (256, 256))
         self.assertEqual(mask.dtype, np.uint8)

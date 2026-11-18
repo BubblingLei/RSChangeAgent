@@ -25,6 +25,22 @@ UPSTREAM_COMMIT = "aed3f1833f3d9d3eccba8c894fd097f358b5329e"
 INPUT_SIZE = (256, 256)
 
 
+def apply_model_configuration(model: torch.nn.Module, configuration: dict) -> None:
+    """Restore parameter-free pooling choices from a full-model checkpoint."""
+    pools = configuration.get("attention_pooling")
+    if not isinstance(pools, dict) or set(pools) != {"ca", "ca1"}:
+        raise ValueError("Expected pooling configuration for ca and ca1")
+    constructors = {"AdaptiveAvgPool2d": torch.nn.AdaptiveAvgPool2d,
+                    "AdaptiveMaxPool2d": torch.nn.AdaptiveMaxPool2d}
+    for name, settings in pools.items():
+        if not isinstance(settings, dict) or set(settings) != {"avg_pool", "max_pool"}:
+            raise ValueError(f"Invalid pooling configuration: {name}")
+        for field, kind in settings.items():
+            if kind not in constructors:
+                raise ValueError(f"Unsupported pooling type: {kind}")
+            setattr(getattr(model, name), field, constructors[kind](1))
+
+
 def validate_image(path: str) -> Path:
     """Accept only full, aligned RGB PNG/JPEG tiles; never silently resize."""
     if not isinstance(path, str) or not path.strip():
@@ -58,6 +74,15 @@ class SNUNet:
             raise ValueError("SNUNet integration supports cpu or cuda devices")
         model = SNUNet_ECAM(in_ch=3, out_ch=2)
         checkpoint = torch.load(weight, map_location="cpu", weights_only=True)
+        self.configuration = {"attention_pooling": {
+            "ca": {"avg_pool": "AdaptiveAvgPool2d", "max_pool": "AdaptiveMaxPool2d"},
+            "ca1": {"avg_pool": "AdaptiveAvgPool2d", "max_pool": "AdaptiveMaxPool2d"},
+        }}
+        if isinstance(checkpoint, dict) and "model_configuration" in checkpoint:
+            self.configuration = checkpoint["model_configuration"]
+        elif isinstance(checkpoint, dict) and "source_sha256" in checkpoint:
+            raise ValueError("Legacy conversion lacks pooling configuration; rerun convert_checkpoint.py from the original .pt")
+        apply_model_configuration(model, self.configuration)
         state = checkpoint
         if isinstance(checkpoint, dict):
             for key in ("state_dict", "model_state_dict", "model_G_state_dict"):

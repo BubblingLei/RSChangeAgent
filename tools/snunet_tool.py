@@ -101,7 +101,7 @@ class SNUNetTool(BaseAction):
                 ],
                 "diagnostics": {"changed_pixel_count": int(mask.sum()), "changed_fraction": float(mask.mean())},
                 "warnings": [
-                    f"Configured training domain: {self.capability['trained_on']}; cross-domain accuracy is unverified",
+                    f"Configured training domain: {self.capability['trained_on']}; target-domain quality must be validated (see VALIDATION.md)",
                     "Binary change does not identify building/road classes or addition/removal",
                     "Registration is a caller precondition; model confidence is not calibrated",
                     "No georeferencing available; areas are pixel counts, not square metres",
@@ -113,6 +113,7 @@ class SNUNetTool(BaseAction):
                     "capability": self.capability, "device": str(model.device),
                     "inputs": {"image_before": str(before), "image_after": str(after)},
                     "preprocessing": "RGB float32 0..255 CHW, no normalization or resizing",
+                    "model_configuration": model.configuration,
                     "includes_model_load": includes_load, "timing_scope": "load_if_needed+inference+mask_writes; excludes result.json write",
                 },
             }

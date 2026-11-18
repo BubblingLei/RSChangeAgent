@@ -18,7 +18,7 @@ if __package__ in (None, ""):
     __package__ = "algorithms.snunet"
 
 from .models import Models as upstream_model
-from .inference import UPSTREAM_COMMIT
+from .inference import UPSTREAM_COMMIT, apply_model_configuration
 
 
 class _UpstreamUnpickler(pickle.Unpickler):
@@ -47,6 +47,21 @@ def convert(source: Path, output: Path) -> None:
         raise ValueError("Expected the official SNUNet_ECAM full-model checkpoint")
     state = checkpoint.state_dict()
     reference = upstream_model.SNUNet_ECAM(in_ch=3, out_ch=2)
+    # Pooling has no tensors in state_dict. The official legacy CDD model's
+    # `max_pool` is actually AdaptiveAvgPool2d; rebuilding the current source
+    # without restoring this would silently change its predictions.
+    pooling = {}
+    for name in ("ca", "ca1"):
+        pooling[name] = {}
+        for field in ("avg_pool", "max_pool"):
+            pool = getattr(getattr(checkpoint, name), field)
+            if type(pool) not in (torch.nn.AdaptiveAvgPool2d, torch.nn.AdaptiveMaxPool2d):
+                raise ValueError(f"Unsupported legacy pooling module: {name}.{field}")
+            if pool.output_size not in (1, (1, 1)):
+                raise ValueError(f"Unsupported pooling output size: {name}.{field}")
+            pooling[name][field] = type(pool).__name__
+    configuration = {"attention_pooling": pooling}
+    apply_model_configuration(reference, configuration)
     # The official CDD full-model checkpoint includes ca2/ca3/ca4 modules,
     # although neither its embedded original forward nor the pinned upstream
     # forward calls them (only ca and ca1 are used). Preserve these six tensors
@@ -65,8 +80,10 @@ def convert(source: Path, output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     torch.save({"state_dict": state, "source_sha256": digest.hexdigest(),
                 "upstream_commit": UPSTREAM_COMMIT,
+                "model_configuration": configuration,
                 "unused_legacy_state": unused}, output)
     print(f"Converted checkpoint: {output}\nSource SHA256: {digest.hexdigest()}")
+    print(f"Preserved pooling configuration: {configuration}")
     if unused:
         print(f"Preserved unused legacy tensors separately: {sorted(unused)}")
 

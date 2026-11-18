@@ -38,12 +38,17 @@ tests/
 当前直接在原项目根目录 `D:\AIProjects\Change-Agent` 的 `feat/snunet-tool`
 分支开发，`algorithms/`、`tools/` 与搭档保持相同层级。
 
+官方旧权重包含与当前源码不同的无参数池化层。转换与推理适配会保存、恢复
+实际配置，保持原模型行为；不会直接用当前源码默认池化替代旧权重中的设置。
+详见 WEIGHTS.md 的兼容说明。
+
 ## 权重与能力边界
 
 先按 [WEIGHTS.md](WEIGHTS.md) 下载并转换官方 CDD 权重。
 能力画像 `CAPABILITY` 位于工具代码中：二值、一般变化、CDD、256、CNN。
 用户调研表中“SNUNet 无 LICENSE”已过时：所固定的官方版本包含 MIT LICENSE。
-CDD 与 LEVIR-CD/LEVIR-MCI 数据域不同；本接入没有进行精度评估，也未训练模型。
+CDD 与 LEVIR-CD/LEVIR-MCI 数据域不同；已在本地 LEVIR-MCI 完整测试集评估
+建筑变化，IoU 8.73%、F1 16.06%，暂不建议作为默认建筑复核权重；未训练模型。
 `trained_on` 是部署者配置，不由 LLM 自行修改；与真实权重来源保持一致。
 
 ## 独立推理
@@ -103,5 +108,6 @@ python -m unittest discover -s tests -p test_snunet.py -v
 验证结构、预处理及严格加载。两者都不代表官方权重精度或真实LLM调用通过。
 测试临时文件自动清理，不需要下载模型，不读取 API Key。
 
-2026-11-18 发布前已额外验证本机官方 CDD 权重转换、独立推理与工具直接调用，
-详见 [VALIDATION.md](VALIDATION.md)。尚未验证真实 DeepSeek 工具调用或完整测试集精度。
+2026-11-18 已额外验证本机官方 CDD 权重转换、独立推理与工具直接调用，
+并修正无参数池化配置后评估完整 LEVIR-MCI 测试集，详见
+[VALIDATION.md](VALIDATION.md)。尚未验证真实 DeepSeek 工具调用或自适应调度。
