@@ -5,6 +5,7 @@ import hashlib
 import json
 import time
 import uuid
+from copy import deepcopy
 from pathlib import Path
 from typing import Optional
 
@@ -13,13 +14,13 @@ from PIL import Image
 from lagent.actions.base_action import BaseAction
 from lagent.schema import ActionReturn, ActionStatusCode
 
-from algorithms.snunet.inference import SNUNet, UPSTREAM_COMMIT, validate_image
+from algorithms.snunet.inference import SNUNet, DEFAULT_PROFILE, get_profile, validate_image
 
 ALGO_DIR = Path(__file__).resolve().parents[1] / "algorithms" / "snunet"
 CAPABILITY = {
     "output_encoding": "binary",
-    "target_object": "general_change",
-    "trained_on": "CDD",
+    "target_object": "building",
+    "trained_on": "LEVIR-CD",
     "input_size": 256,
     "method_family": "cnn",
 }
@@ -30,17 +31,28 @@ class SNUNetTool(BaseAction):
 
     __tool_name__ = "snunet"
 
-    def __init__(self, weight_path: Optional[str] = None, device: str = "cuda", trained_on: str = "CDD"):
-        super().__init__()
-        self.weight_path = Path(weight_path or ALGO_DIR / "checkpoints" / "snunet_cdd.pth").expanduser().resolve()
+    def __init__(self, weight_path: Optional[str] = None, device: str = "cuda", trained_on: Optional[str] = None,
+                 profile: str = DEFAULT_PROFILE):
+        settings = get_profile(profile)
+        if trained_on is not None and trained_on != settings["trained_on"]:
+            raise ValueError("trained_on must match the selected weight/architecture profile")
+        description = deepcopy(self.__tool_description__)
+        description['description'] = (
+            f"SNUNet {profile}, trained on {settings['trained_on']}, target={settings['target_object']}. "
+            f"Labels {settings['labels']}. Accepts aligned fully valid RGB 256x256 PNG/JPEG. "
+            "No registration or calibrated confidence; no addition/removal direction. "
+            "Deployment profile/weights are fixed, not chosen by the LLM. " + settings['deployment_note'])
+        super().__init__(description=description)
+        self.profile, self.settings = profile, settings
+        self.weight_path = Path(weight_path or ALGO_DIR / "checkpoints" / settings["weight_file"]).expanduser().resolve()
         self.device = device
-        self.capability = dict(CAPABILITY, trained_on=trained_on)
+        self.capability = dict(CAPABILITY, trained_on=settings["trained_on"], target_object=settings["target_object"])
         self._model = None
         self._weight_sha256 = None
 
     def _get_model(self):
         if self._model is None:
-            model = SNUNet(self.weight_path, self.device)
+            model = SNUNet(self.weight_path, self.device, profile=self.profile)
             digest = hashlib.sha256()
             with self.weight_path.open("rb") as stream:
                 for block in iter(lambda: stream.read(1024 * 1024), b""):
@@ -52,9 +64,9 @@ class SNUNetTool(BaseAction):
     def run(self, image_before: str, image_after: str, output_dir: str = "output") -> ActionReturn | dict:
         """Run SNUNet on aligned RGB 256x256 PNG/JPEG images, returning binary change masks.
 
-        The default checkpoint profile is CDD general change, not a LEVIR building
-        specialist. Labels are 0=unchanged, 1=change, with no road/building or
-        added/removed distinction. Requires pre-aligned, fully valid tiles; no
+        Default deployment is Open-CD LEVIR C16 building change; the explicit
+        cdd_c32 profile is legacy general change. Labels and normalization follow
+        that fixed profile, with no added/removed distinction. Requires pre-aligned, fully valid tiles; no
         registration check is performed. GPU/CPU inference cost is measured;
         first call also loads weights. Confidence and quality are not estimated.
 
@@ -93,26 +105,28 @@ class SNUNetTool(BaseAction):
             Image.fromarray(viz).save(viz_path)
             result = {
                 "schema_version": "0.1", "run_id": run_id,
-                "summary": f"SNUNet detected {int(mask.sum())} changed pixels; not an object count",
+                "summary": f"SNUNet {self.profile} detected {int(mask.sum())} {self.settings['labels']['1']} pixels; not an object count",
                 "artifacts": [
-                    {"kind": "mask_label", "path": str(label_path), "labels": {"0": "unchanged", "1": "change"},
+                    {"kind": "mask_label", "path": str(label_path), "labels": deepcopy(self.settings["labels"]),
                      "size": [256, 256], "reference_image": str(before), "coordinate_system": "pixel_xy_top_left"},
                     {"kind": "mask_viz", "path": str(viz_path)},
                 ],
                 "diagnostics": {"changed_pixel_count": int(mask.sum()), "changed_fraction": float(mask.mean())},
                 "warnings": [
                     f"Configured training domain: {self.capability['trained_on']}; target-domain quality must be validated (see VALIDATION.md)",
-                    "Binary change does not identify building/road classes or addition/removal",
+                    f"Configured target is {self.capability['target_object']}; binary output does not distinguish addition/removal",
                     "Registration is a caller precondition; model confidence is not calibrated",
                     "No georeferencing available; areas are pixel counts, not square metres",
+                    self.settings["deployment_note"],
                 ],
                 "elapsed_seconds": time.perf_counter() - start,
                 "provenance": {
-                    "algorithm": "SNUNet-CD/SNUNet_ECAM", "upstream_commit": UPSTREAM_COMMIT,
+                    "algorithm": "SNUNet-CD/SNUNet_ECAM", "upstream_commit": getattr(model, 'upstream_commit', None),
+                    "profile": self.profile,
                     "weight": str(self.weight_path), "weight_sha256": self._weight_sha256,
                     "capability": self.capability, "device": str(model.device),
                     "inputs": {"image_before": str(before), "image_after": str(after)},
-                    "preprocessing": "RGB float32 0..255 CHW, no normalization or resizing",
+                    "preprocessing": self.settings["preprocessing"],
                     "model_configuration": model.configuration,
                     "includes_model_load": includes_load, "timing_scope": "load_if_needed+inference+mask_writes; excludes result.json write",
                 },

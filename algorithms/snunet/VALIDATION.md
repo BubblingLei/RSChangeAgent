@@ -1,4 +1,69 @@
-# 验证记录 — 2026-11-17
+# SNUNet 验证记录
+
+## 默认部署切换为 Open-CD LEVIR C16 2026年11月22日
+
+默认profile为 `levir_c16`，旧CDD仍可通过 `cdd_c32` 显式运行。
+网络、分类头、权重、预处理、能力画像和结果标签均按profile绑定；未升级现有依赖。
+
+### 来源和实现一致性
+
+- 作者Open-CD模型库原权重40,792,765bytes，SHA256与LFS记录一致：
+  `984bfd07e0a30bbea5cd5a2fec918c994208c63b6c69e67a6592e06871811572`。
+- 安全静态提取236个tensor，共3,015,856个元素；未执行原checkpoint中的MMEngine/NumPy pickle对象。
+- 正式转换文件 `checkpoints/snunet_levir_c16.pth` 的本机SHA256为
+  `314d74b0b16261e6d0917b995673de660c7b13e02e475aeec019dca9e98ef671`。
+- 对真实权重严格加载；16基础通道、64→2 FCN分类头、RGB mean/std、BN和注意力池化均核对。
+- 使用原始下载的官方backbone与FCNHead eval的1×1卷积作为独立网络前向参照，
+  在CPU 64×64真实权重输入上与本接入logits最大绝对差为0。
+  这验证网络和分类头推理等价，不是原始1024测试程序的完整复现。
+- 固定源码、权重、配置、许可和适配差异记录见 `opencd_source.json`。
+
+### 代码及真实工具验收
+
+`python -m unittest discover -s tests -p "test_snunet*.py" -v`：20项CPU测试通过。
+包括原CDD兼容、C16结构与归一化、严格加载和profile隔离、工具标签及运行记录、
+静态转换的惰性对象处理、storage边界、错误状态和输出保护。
+
+本机RTX 4060 Laptop、PyTorch2.1.2+cu121、FP32、batch=1真实运行：
+
+- 演示A/B输出22,375个建筑变化像素，A/A为0；
+  LEVIR-MCI test_000001为0，test_000004为12,909。
+- 独立预测与真实ActionExecutor调用的Mask逐位一致；状态SUCCESS，模型复用，
+  0/1单通道标签、红色可视化及result.json正常保存；缺失输入为ARGS_ERROR。
+- 默认profile的真实CLI输出与独立API一致；推理、Agent示例、C16转换器的
+  直接脚本与 `python -m` 共6种帮助入口通过，直接脚本也从项目外工作目录验证。
+  显式CDD C32在GPU演示A/B上仍输出11,694个变化像素，与旧记录一致。
+- 当前推理已分配显存峰值约105.2MiB，reserved峰值158MiB。
+  该数值不是nvidia-smi全设备用量，也不是多模型同时驻留测试。
+
+### 完整LEVIR-MCI建筑任务适用性评估
+
+沿用此前官方test.txt的全部1,929对原生RGB256瓦片：建筑正样本878、无标注变化953、
+仅道路变化98。以原标签第一通道255作为建筑正类，道路128和背景0作为负类。
+累计整个测试集的TP/FP/FN/TN，未训练、调阈值、交换时序、缩放或测试增强；
+真值只由独立评估代码读取，未提供给模型或Agent。
+
+- C16：建筑前景IoU **82.3912%**，F1 **90.3456%**，
+  Precision **91.2921%**，Recall **89.4185%**。
+- TP6,052,277，FP577,298，FN716,206，TN119,073,163。
+- 已重新汇总1,929行CSV，确认与汇总JSON计数和指标一致。
+- 当前接口平均约48.96ms/对，GPU同步、3次预热，含文件校验/预处理/推理和CPU结果，
+  不含首次加载、标注和指标计算。CPU工具与并发环境有差别，不作为纯网络速度排名。
+- 此前固定参考：CDD C32 IoU8.7313%、F116.0603%；MCI建筑类别IoU81.9999%、F190.1098%。
+  C16与旧CDD是两套部署方案，不能把差异只归因于训练数据。
+
+这些是LEVIR-MCI建筑前景适用性结果，不是Open-CD公开LEVIR-CD整体测试分数、
+MCI论文多类别MIoU或独立域外泛化结果。LEVIR-CD训练与本地LEVIR-MCI的地理/样本重叠
+尚未排除，不能据此宣称无泄漏泛化或Agent调度收益。
+
+本地原始产物：`output/c16_validation_20261122_f26501af/validation.json`、
+`c16_per_image.csv`、`c16_predictions.npz`、`examples.png`和独立工具结果目录。
+验收脚本：根目录 `work/validate_c16_20261122.py`；网络对照记录
+`work/c16-research/reference_parity.json`。权重、输入和运行产物不提交Git。
+
+真实DeepSeek调用、与其他模型联合调度、独立域外验证及复核收益仍未验收。
+
+## 历史记录 2026年11月17日
 
 环境：Windows、Python 3.9、PyTorch 2.1.2+cu121、RTX 4060 Laptop GPU。
 未安装或升级公共环境依赖。开发分支为 `feat/snunet-tool`，基于公共基线

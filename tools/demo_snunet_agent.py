@@ -16,19 +16,21 @@ from lagent.llms import GPTAPI
 from lagent.schema import ActionStatusCode
 
 from tools.snunet_tool import SNUNetTool
+from algorithms.snunet.inference import DEFAULT_PROFILE, PROFILE_SETTINGS
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--weight", required=True)
+    parser.add_argument("--weight", help="Defaults to the selected profile's converted checkpoint")
+    parser.add_argument("--profile", choices=tuple(PROFILE_SETTINGS), default=DEFAULT_PROFILE)
     parser.add_argument("--device", default="cuda")
-    parser.add_argument("--trained-on", default="CDD")
+    parser.add_argument("--trained-on", help="Optional check; must match the fixed deployment profile")
     parser.add_argument("--question", required=True)
     parser.add_argument("--model", default="deepseek-flash")
     parser.add_argument("--endpoint", default="https://api.deepseek.com/chat/completions")
     args = parser.parse_args()
     # A missing checkpoint fails before making any paid API call.
-    tool = SNUNetTool(args.weight, args.device, args.trained_on)
+    tool = SNUNetTool(args.weight, args.device, args.trained_on, args.profile)
     tool._get_model()
     key = os.environ.get("DEEPSEEK_API_KEY") or getpass("DeepSeek API Key (hidden): ")
     llm = GPTAPI(model_type=args.model, key=key, openai_api_base=args.endpoint,

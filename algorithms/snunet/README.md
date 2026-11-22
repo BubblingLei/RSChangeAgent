@@ -1,113 +1,109 @@
-# SNUNet-CD 独立工具接入
+# SNUNet-CD 独立算法与工具
 
-从公共基线 `eb54e664ab55c7eae6c69e3422de8ceeb620e4ec` 开发。
-复用现有 PyTorch 2.1.2、NumPy、Pillow 和 Lagent，不安装或升级依赖。
-算法源码只依赖 PyTorch；不需要 mmcv/mmseg 或对应打桩包。
+默认部署已切换为 **Open-CD 的 LEVIR-CD C16 建筑变化权重**。
+旧 CDD C32 仍通过显式 `--profile cdd_c32` 使用，权重和历史实验记录保留。
+两个 profile 绑定各自的网络、分类头、预处理和标签，不能只替换权重文件名。
 
-## 文件关系
+开发基线为 `eb54e664ab55c7eae6c69e3422de8ceeb620e4ec`，分支 `feat/snunet-tool`。
+复用现有 Python 3.9、PyTorch 2.1.2+cu121、NumPy、Pillow 和 Lagent，
+未安装或升级 mmcv、mmsegmentation、mmengine 等公共依赖。
 
-- `models/Models.py`：保留上游网络原文，附 MIT LICENSE 与来源说明。
-- `inference.py`：独立推理，不依赖 Agent。
-- `convert_checkpoint.py`：可信官方旧权重的一次性转换。
-- `../../tools/snunet_tool.py`：输入校验、模型懒加载、运行记录与契约返回。
-- `../../tools/demo_snunet_agent.py`：只注册 SNUNet 的 ReAct 示例，不启用 Python Interpreter。
-
-所有本算法内部导入使用 `algorithms.snunet.*` 命名空间，不使用
-`sys.path + from inference/models import ...`，避免与其他模型重名。
-
-目录按搭档 ChangeFormer、BIT、TinyCD 的约定组织：
+## 文件结构
 
 ```text
 algorithms/snunet/
-    models/Models.py           # 模型实现，沿用官方文件名
-    inference.py              # 独立推理入口
-    checkpoints/              # 本地权重，不提交
+    models/Models.py               # 原 CDD C32，保留原文及 MIT 许可
+    models/opencd_c16.py           # Open-CD C16 + FCN 分类头的纯 PyTorch 推理
+    inference.py                  # 默认 levir_c16；可显式选 cdd_c32
+    convert_opencd_checkpoint.py  # 静态提取固定 Open-CD 权重，不执行 pickle 对象
+    convert_checkpoint.py         # 旧 CDD 全模型对象专用转换
+    checkpoints/                  # 本地权重，忽略提交
     README.md
     WEIGHTS.md
-    LICENSE
-    convert_checkpoint.py     # SNUNet 旧模型格式专用转换
-    VALIDATION.md             # 验证记录
+    VALIDATION.md
 tools/
-    snunet_tool.py             # Lagent 工具适配
-    demo_snunet_agent.py       # Agent 调用示例
+    snunet_tool.py                # 独立 BaseAction，统一结果信封
+    demo_snunet_agent.py          # 单工具 ReAct 示例
 tests/
-    test_snunet.py
+    test_snunet.py                # 原接口与 CDD 兼容回归
+    test_snunet_c16.py            # C16 配置、严格加载及安全转换回归
 ```
 
-算法内部源码随模型而异，不复制其他模型的训练脚本或样例输出。
-当前直接在原项目根目录 `D:\AIProjects\Change-Agent` 的 `feat/snunet-tool`
-分支开发，`algorithms/`、`tools/` 与搭档保持相同层级。
+内部使用 `algorithms.snunet.*` 命名空间，算法可脱离 Lagent 单独运行。
 
-官方旧权重包含与当前源码不同的无参数池化层。转换与推理适配会保存、恢复
-实际配置，保持原模型行为；不会直接用当前源码默认池化替代旧权重中的设置。
-详见 WEIGHTS.md 的兼容说明。
+## 默认权重与配置
 
-## 权重与能力边界
+作者模型库的原文件为 `snunet_c16_256x256_40k_levircd.pth`，
+转换后的默认文件为 `checkpoints/snunet_levir_c16.pth`。获取及转换命令见
+[WEIGHTS.md](WEIGHTS.md)。日常加载仅使用 `weights_only=True`，并严格检查参数。
 
-先按 [WEIGHTS.md](WEIGHTS.md) 下载并转换官方 CDD 权重。
-能力画像 `CAPABILITY` 位于工具代码中：二值、一般变化、CDD、256、CNN。
-用户调研表中“SNUNet 无 LICENSE”已过时：所固定的官方版本包含 MIT LICENSE。
-CDD 与 LEVIR-CD/LEVIR-MCI 数据域不同；已在本地 LEVIR-MCI 完整测试集评估
-建筑变化，IoU 8.73%、F1 16.06%，暂不建议作为默认建筑复核权重；未训练模型。
-`trained_on` 是部署者配置，不由 LLM 自行修改；与真实权重来源保持一致。
+C16 使用 RGB 原始0–255值减均值 `[123.675,116.28,103.53]`、
+除标准差 `[58.395,57.12,57.375]`；不先除255，也不对 PIL RGB 再交换颜色通道。
+输出为 `0=未变化，1=建筑变化`，不区分新增/拆除，不包含道路类别。
+
+本工具继续接收已对齐、完整有效的 RGB 256×256 PNG/JPEG 原生瓦片，
+不静默缩放。Open-CD 原配置的测试流程使用1024×1024整图，
+因此当前瓦片部署不等同于原公开测试协议，不能直接引用其论文/模型库分数。
 
 ## 独立推理
 
-在工作目录根目录执行，权重转换后才可获得有意义的预测。
-示例中的输入为项目演示图片的相对路径；可替换为绝对路径。
+在项目根目录和 `change-agent` 环境中执行：
 
 ```bat
-python algorithms/snunet/inference.py --weight algorithms/snunet/checkpoints/snunet_cdd.pth --image_before Multi_change/demo_images/A.png --image_after Multi_change/demo_images/B.png --output output/snunet_label.png
+python algorithms/snunet/inference.py --image_before Multi_change/demo_images/A.png --image_after Multi_change/demo_images/B.png --output algorithms/snunet/output/demo_c16_label.png
 ```
 
-也支持 `python -m algorithms.snunet.inference`；两种入口调用同一实现。
+也支持 `python -m algorithms.snunet.inference`。
+可通过 `--weight` 指定同一 profile 的转换权重，`--device cpu` 显式使用CPU。
+已有输出文件会拒绝覆盖。标签值1在看图软件中接近黑色，不代表空预测。
 
-输出为单通道 0/1 PNG：0=未变化，1=变化。可视化或查看软件可能显示几乎全黑，
-因为标签值1并不是255；工具会另存红色可视化图，不能用可视化代替计算标签。
+旧版本的显式调用：
 
-## 工具直接调用
+```bat
+python algorithms/snunet/inference.py --profile cdd_c32 --weight algorithms/snunet/checkpoints/snunet_cdd.pth --image_before Multi_change/demo_images/A.png --image_after Multi_change/demo_images/B.png --output algorithms/snunet/output/demo_cdd_label.png
+```
+
+## 工具调用
 
 ```python
 from lagent.actions import ActionExecutor
 from tools.snunet_tool import SNUNetTool
 
-executor = ActionExecutor(actions=[SNUNetTool()])
+executor = ActionExecutor(actions=[SNUNetTool()])  # 默认 LEVIR C16
 result = executor('snunet', {
     'image_before': 'D:/path/to/A.png',
     'image_after': 'D:/path/to/B.png',
-    'output_dir': 'output',
+    'output_dir': 'algorithms/snunet/output',
 })
 print(result.state, result.result, result.errmsg)
 ```
 
-首版只接收 RGB、256×256、PNG/JPEG。对缺失文件、通道/尺寸不符返回
-`ARGS_ERROR`，模型/权重加载、推理和写文件失败返回 `API_ERROR`。
-成功返回契约 v0.1 信封、绝对文件路径、标签字典、像素坐标参考、变化像素数、
-耗时、权重哈希、实际设备、来源与警告；每次生成独立目录与 `result.json`。
-首调用耗时包括加载和权重哈希，后续调用复用模型；推理转CPU结果时完成GPU同步。
-输入必须是完整有效像素瓦片；不支持地理量测、NoData 或局部裁剪回填。
+模型懒加载并复用。工具返回单通道标签、红色可视化、`result.json`、
+profile、能力画像、实际预处理、网络配置、权重哈希及耗时。
+缺失/错误尺寸/错误通道返回 `ARGS_ERROR`，模型、权重或写文件失败返回 `API_ERROR`。
+无地理参考时只报告像素数，不报告平方米或建筑栋数。
 
-## Agent 调用（需要你本机的 API Key）
+部署参数 `profile` 不开放给LLM。旧版可构造 `SNUNetTool(profile='cdd_c32')`；
+能力画像和工具说明随profile切换。`trained_on` 如显式传入，必须与profile相符，
+不能把CDD模型只改一个字符串就标为LEVIR模型。
 
-```bat
-python tools/demo_snunet_agent.py --weight algorithms/snunet/checkpoints/snunet_cdd.pth --question "请实际调用 snunet 工具，对比 D:/path/to/A.png 与 D:/path/to/B.png，将结果保存到 output，并用中文解释输出。"
-```
-
-未设置 `DEEPSEEK_API_KEY` 时会隐藏输入提示；不把Key写入文件。
-可用 `--model` 和 `--endpoint` 指定服务配置。真实调用会产生 API 费用。
-程序检查是否真的有成功的 SNUNet 执行记录；仅有LLM文字回答不算成功。
-该检查只能确认发生了调用，不能保证摘要准确，也不是预算调度系统。
-
-## 本地测试
+## Agent 示例
 
 ```bat
-python -m unittest discover -s tests -p test_snunet.py -v
+python tools/demo_snunet_agent.py --question "请实际调用 snunet，对比 D:/AIProjects/Change-Agent/Multi_change/demo_images/A.png 与 D:/AIProjects/Change-Agent/Multi_change/demo_images/B.png，结果保存在 algorithms/snunet/output，并用中文回答。"
 ```
 
-测试区分：接口用受控假模型验证数据流和错误处理；网络烟雾测试使用临时随机参数
-验证结构、预处理及严格加载。两者都不代表官方权重精度或真实LLM调用通过。
-测试临时文件自动清理，不需要下载模型，不读取 API Key。
+默认先加载C16，成功后才访问API。Key通过环境变量或隐藏输入读取，不保存到文件。
+日志必须包含真实成功的工具记录；仅有LLM文字不算执行成功。
+该示例只启用一个SNUNet工具，不代表多算法自主调度已完成。
 
-2026-11-18 已额外验证本机官方 CDD 权重转换、独立推理与工具直接调用，
-并修正无参数池化配置后评估完整 LEVIR-MCI 测试集，详见
-[VALIDATION.md](VALIDATION.md)。尚未验证真实 DeepSeek 工具调用或自适应调度。
+## 验证与旧结果边界
+
+```bat
+python -m unittest discover -s tests -p "test_snunet*.py" -v
+```
+
+测试与真实权重运行记录见 [VALIDATION.md](VALIDATION.md)。
+旧CDD C32在LEVIR-MCI建筑任务上的IoU 8.73%、F1 16.06%只属于旧profile，
+不能作为新C16效果证据，也不能据此否定SNUNet架构。
+对新profile的目标域评估须另行记录，不能用样例变化像素数证明精度。

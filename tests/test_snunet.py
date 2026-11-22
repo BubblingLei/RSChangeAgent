@@ -39,7 +39,7 @@ class SNUNetContractTests(unittest.TestCase):
         self.before, self.after = self.root / 'A.png', self.root / 'B.png'
         for path in (self.before, self.after):
             Image.new('RGB', (256, 256), (255, 127, 0)).save(path)
-        self.tool = SNUNetTool(device='cpu')
+        self.tool = SNUNetTool(device='cpu', profile='cdd_c32')
         self.args = dict(image_before=str(self.before), image_after=str(self.after), output_dir=str(self.root / 'out'))
 
     def tearDown(self):
@@ -98,7 +98,7 @@ class SNUNetContractTests(unittest.TestCase):
         self.assertIn('changed_pixel_count', str(second_prompt))
 
     def test_preprocessing_matches_upstream_not_imagenet(self):
-        tensor = SNUNet._preprocess(validate_image(str(self.before)))
+        tensor = SNUNet._preprocess(validate_image(str(self.before)), profile='cdd_c32')
         self.assertEqual(tuple(tensor.shape), (1, 3, 256, 256))
         self.assertEqual(tensor.dtype, torch.float32)
         self.assertEqual(tensor[0, :, 0, 0].tolist(), [255.0, 127.0, 0.0])
@@ -132,7 +132,7 @@ class SNUNetContractTests(unittest.TestCase):
         for name, tensor in converted['unused_legacy_state'].items():
             self.assertTrue(torch.equal(tensor, model.state_dict()[name]))
         self.assertFalse(any(key.startswith(('ca2.', 'ca3.', 'ca4.')) for key in converted['state_dict']))
-        detector = SNUNet(weight, device='cuda' if torch.cuda.is_available() else 'cpu')
+        detector = SNUNet(weight, device='cpu', profile='cdd_c32')
         self.assertIsInstance(detector.model.ca.max_pool, torch.nn.AdaptiveAvgPool2d)
         self.assertIsInstance(detector.model.ca1.max_pool, torch.nn.AdaptiveAvgPool2d)
         # state_dict equality alone cannot catch parameter-free architecture drift.
@@ -152,7 +152,7 @@ class SNUNetContractTests(unittest.TestCase):
         self.assertNotIn('inference', sys.modules)
         self.assertNotIn('models.Models', sys.modules)
         with patch('tools.snunet_tool.SNUNet', return_value=detector) as factory:
-            tool = SNUNetTool(str(weight), device='cpu')
+            tool = SNUNetTool(str(weight), device='cpu', profile='cdd_c32')
             self.assertIs(tool._get_model(), tool._get_model())
             factory.assert_called_once()
 
