@@ -17,9 +17,10 @@ venv/
 models_ckpt/
 **/checkpoints/
 
-# IDE
+# IDE / 系统文件
 .idea/
 .vscode/
+.DS_Store
 
 # 临时输出
 tmp_dir/
