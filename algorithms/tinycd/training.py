@@ -8,7 +8,7 @@ import torch
 import numpy as np
 import random
 from metrics.metric_tool import ConfuseMatrixMeter
-from models.change_classifier import ChangeClassifier as Model
+from tinycd_models.change_classifier import ChangeClassifier as Model
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 

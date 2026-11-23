@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.nn.functional
 import torch.nn.functional as F
 from functools import partial
-from models.ChangeFormerBaseNetworks import *
-from models.help_funcs import TwoLayerConv2d, save_to_mat
+from cf_models.ChangeFormerBaseNetworks import *
+from cf_models.help_funcs import TwoLayerConv2d, save_to_mat
 import torch.nn.functional as F
 
 import timm
@@ -18,7 +18,7 @@ import pdb
 
 from scipy.io import savemat
 
-from models.pixel_shuffel_up import PS_UP
+from cf_models.pixel_shuffel_up import PS_UP
 
 class EncoderTransformer(nn.Module):
     def __init__(self, img_size=256, patch_size=16, in_chans=3, num_classes=2, embed_dims=[64, 128, 256, 512],

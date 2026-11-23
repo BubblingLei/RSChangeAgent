@@ -3,7 +3,7 @@ from dataset.dataset import MyDataset
 import tqdm
 from torch.utils.data import DataLoader
 from metrics.metric_tool import ConfuseMatrixMeter
-from models.change_classifier import ChangeClassifier
+from tinycd_models.change_classifier import ChangeClassifier
 import argparse
 
 def parse_arguments():

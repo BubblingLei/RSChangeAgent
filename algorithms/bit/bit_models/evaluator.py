@@ -2,7 +2,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-from models.networks import *
+from bit_models.networks import *
 from misc.metric_tool import ConfuseMatrixMeter
 from misc.logger_tool import Logger
 from utils import de_norm
@@ -151,7 +151,7 @@ class CDEvaluator():
         self.batch = batch
         img_in1 = batch['A'].to(self.device)
         img_in2 = batch['B'].to(self.device)
-        self.G_pred = self.net_G(img_in1, img_in2)[-1]
+        self.G_pred = self.net_G(img_in1, img_in2)
 
     def eval_models(self,checkpoint_name='best_ckpt.pt'):
 

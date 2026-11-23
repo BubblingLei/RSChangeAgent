@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 import torch
-from models.evaluator import *
+from bit_models.evaluator import *
 
 print(torch.cuda.is_available())
 

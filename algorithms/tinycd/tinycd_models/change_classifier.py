@@ -1,6 +1,6 @@
 from typing import List
 import torchvision
-from models.layers import MixingMaskAttentionBlock, PixelwiseLinear, UpMask, MixingBlock
+from tinycd_models.layers import MixingMaskAttentionBlock, PixelwiseLinear, UpMask, MixingBlock
 from torch import Tensor
 from torch.nn import Module, ModuleList, Sigmoid
 

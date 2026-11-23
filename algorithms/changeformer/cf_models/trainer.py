@@ -3,29 +3,32 @@ import matplotlib.pyplot as plt
 import os
 
 import utils
-from models.networks import *
+from cf_models.networks import *
 
 import torch
 import torch.optim as optim
-
+import numpy as np
 from misc.metric_tool import ConfuseMatrixMeter
-from models.losses import cross_entropy
-import models.losses as losses
+from cf_models.losses import cross_entropy
+import cf_models.losses as losses
+from cf_models.losses import get_alpha, softmax_helper, FocalLoss, mIoULoss, mmIoULoss
 
 from misc.logger_tool import Logger, Timer
 
 from utils import de_norm
 
+from tqdm import tqdm
 
 class CDTrainer():
 
     def __init__(self, args, dataloaders):
-
+        self.args = args
         self.dataloaders = dataloaders
 
         self.n_class = args.n_class
         # define G
         self.net_G = define_G(args=args, gpu_ids=args.gpu_ids)
+
 
         self.device = torch.device("cuda:%s" % args.gpu_ids[0] if torch.cuda.is_available() and len(args.gpu_ids)>0
                                    else "cpu")
@@ -35,9 +38,18 @@ class CDTrainer():
         self.lr = args.lr
 
         # define optimizers
-        self.optimizer_G = optim.SGD(self.net_G.parameters(), lr=self.lr,
+        if args.optimizer == "sgd":
+            self.optimizer_G = optim.SGD(self.net_G.parameters(), lr=self.lr,
                                      momentum=0.9,
                                      weight_decay=5e-4)
+        elif args.optimizer == "adam":
+            self.optimizer_G = optim.Adam(self.net_G.parameters(), lr=self.lr,
+                                     weight_decay=0)
+        elif args.optimizer == "adamw":
+            self.optimizer_G = optim.AdamW(self.net_G.parameters(), lr=self.lr,
+                                    betas=(0.9, 0.999), weight_decay=0.01)
+
+        # self.optimizer_G = optim.Adam(self.net_G.parameters(), lr=self.lr)
 
         # define lr schedulers
         self.exp_lr_scheduler_G = get_scheduler(self.optimizer_G, args)
@@ -73,11 +85,31 @@ class CDTrainer():
         self.checkpoint_dir = args.checkpoint_dir
         self.vis_dir = args.vis_dir
 
+        self.shuffle_AB = args.shuffle_AB
+
         # define the loss functions
+        self.multi_scale_train = args.multi_scale_train
+        self.multi_scale_infer = args.multi_scale_infer
+        self.weights = tuple(args.multi_pred_weights)
         if args.loss == 'ce':
             self._pxl_loss = cross_entropy
         elif args.loss == 'bce':
             self._pxl_loss = losses.binary_ce
+        elif args.loss == 'fl':
+            print('\n Calculating alpha in Focal-Loss (FL) ...')
+            alpha           = get_alpha(dataloaders['train']) # calculare class occurences
+            print(f"alpha-0 (no-change)={alpha[0]}, alpha-1 (change)={alpha[1]}")
+            self._pxl_loss  = FocalLoss(apply_nonlin = softmax_helper, alpha = alpha, gamma = 2, smooth = 1e-5)
+        elif args.loss == "miou":
+            print('\n Calculating Class occurances in training set...')
+            alpha   = np.asarray(get_alpha(dataloaders['train'])) # calculare class occurences
+            alpha   = alpha/np.sum(alpha)
+            # weights = torch.tensor([1.0, 1.0]).cuda()
+            weights = 1-torch.from_numpy(alpha).cuda()
+            print(f"Weights = {weights}")
+            self._pxl_loss = mIoULoss(weight=weights, size_average=True, n_classes=args.n_class).cuda()
+        elif args.loss == "mmiou":
+            self._pxl_loss = mmIoULoss(n_classes=args.n_class).cuda()
         else:
             raise NotImplemented(args.loss)
 
@@ -96,7 +128,7 @@ class CDTrainer():
 
 
     def _load_checkpoint(self, ckpt_name='last_ckpt.pt'):
-
+        print("\n")
         if os.path.exists(os.path.join(self.checkpoint_dir, ckpt_name)):
             self.logger.write('loading last checkpoint...\n')
             # load the entire checkpoint
@@ -121,9 +153,14 @@ class CDTrainer():
             self.logger.write('Epoch_to_start = %d, Historical_best_acc = %.4f (at epoch %d)\n' %
                   (self.epoch_to_start, self.best_val_acc, self.best_epoch_id))
             self.logger.write('\n')
-
+        elif self.args.pretrain is not None:
+            print("Initializing backbone weights from: " + self.args.pretrain)
+            self.net_G.load_state_dict(torch.load(self.args.pretrain), strict=False)
+            self.net_G.to(self.device)
+            self.net_G.eval()
         else:
             print('training from scratch...')
+        print("\n")
 
     def _timer_update(self):
         self.global_step = (self.epoch_id-self.epoch_to_start) * self.steps_per_epoch + self.batch_id
@@ -134,7 +171,7 @@ class CDTrainer():
         return imps, est
 
     def _visualize_pred(self):
-        pred = torch.argmax(self.G_pred, dim=1, keepdim=True)
+        pred = torch.argmax(self.G_final_pred, dim=1, keepdim=True)
         pred_vis = pred * 255
         return pred_vis
 
@@ -156,7 +193,7 @@ class CDTrainer():
         update metric
         """
         target = self.batch['L'].to(self.device).detach()
-        G_pred = self.G_pred.detach()
+        G_pred = self.G_final_pred.detach()
 
         G_pred = torch.argmax(G_pred, dim=1)
 
@@ -241,10 +278,33 @@ class CDTrainer():
         img_in2 = batch['B'].to(self.device)
         self.G_pred = self.net_G(img_in1, img_in2)
 
+        if self.multi_scale_infer == "True":
+            self.G_final_pred = torch.zeros(self.G_pred[-1].size()).to(self.device)
+            for pred in self.G_pred:
+                if pred.size(2) != self.G_pred[-1].size(2):
+                    self.G_final_pred = self.G_final_pred + F.interpolate(pred, size=self.G_pred[-1].size(2), mode="nearest")
+                else:
+                    self.G_final_pred = self.G_final_pred + pred
+            self.G_final_pred = self.G_final_pred/len(self.G_pred)
+        else:
+            self.G_final_pred = self.G_pred[-1]
 
+            
     def _backward_G(self):
-        gt = self.batch['L'].to(self.device).long()
-        self.G_loss = self._pxl_loss(self.G_pred, gt)
+        gt = self.batch['L'].to(self.device).float()
+        if self.multi_scale_train == "True":
+            i         = 0
+            temp_loss = 0.0
+            for pred in self.G_pred:
+                if pred.size(2) != gt.size(2):
+                    temp_loss = temp_loss + self.weights[i]*self._pxl_loss(pred, F.interpolate(gt, size=pred.size(2), mode="nearest"))
+                else:
+                    temp_loss = temp_loss + self.weights[i]*self._pxl_loss(pred, gt)
+                i+=1
+            self.G_loss = temp_loss
+        else:
+            self.G_loss = self._pxl_loss(self.G_pred[-1], gt)
+
         self.G_loss.backward()
 
 
@@ -261,8 +321,9 @@ class CDTrainer():
             self.is_training = True
             self.net_G.train()  # Set model to training mode
             # Iterate over data.
-            self.logger.write('lr: %0.7f\n' % self.optimizer_G.param_groups[0]['lr'])
-            for self.batch_id, batch in enumerate(self.dataloaders['train'], 0):
+            total = len(self.dataloaders['train'])
+            self.logger.write('lr: %0.7f\n \n' % self.optimizer_G.param_groups[0]['lr'])
+            for self.batch_id, batch in tqdm(enumerate(self.dataloaders['train'], 0), total=total):
                 self._forward_pass(batch)
                 # update G
                 self.optimizer_G.zero_grad()

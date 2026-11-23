@@ -19,12 +19,10 @@ from lagent.actions.base_action import BaseAction
 from lagent.actions.parser import BaseParser, JsonParser
 from lagent.schema import ActionReturn, ActionStatusCode
 
-# 让 `from inference import ChangeFormer` 找得到（算法实现层）
+# 算法实现层（仓库根需在 sys.path，由调用方脚本保证）
 ALGO_DIR = Path(__file__).resolve().parents[1] / "algorithms" / "changeformer"
-if str(ALGO_DIR) not in sys.path:
-    sys.path.insert(0, str(ALGO_DIR))
 
-from inference import ChangeFormer  # noqa: E402
+from algorithms.changeformer.inference import ChangeFormer  # noqa: E402
 
 # 能力画像（docs/capability-profile.md v0.1 草案，供「多算法择优」调度使用）
 CAPABILITY = {

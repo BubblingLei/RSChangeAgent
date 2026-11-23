@@ -16,12 +16,12 @@ import torch
 from PIL import Image
 from torchvision.transforms import functional as TF
 
-# 让 `from models.ChangeFormer import ...` 找得到（models 是 vendor 进来的 ChangeFormer 包）
+# 让 `from cf_models.ChangeFormer import ...` 找得到（models 是 vendor 进来的 ChangeFormer 包）
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from models.ChangeFormer import ChangeFormerV6  # noqa: E402
+from cf_models.ChangeFormer import ChangeFormerV6  # noqa: E402
 
 MEAN = [0.5, 0.5, 0.5]
 STD = [0.5, 0.5, 0.5]

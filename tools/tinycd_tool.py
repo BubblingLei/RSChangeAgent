@@ -19,10 +19,8 @@ from lagent.actions.parser import BaseParser, JsonParser
 from lagent.schema import ActionReturn, ActionStatusCode
 
 ALGO_DIR = Path(__file__).resolve().parents[1] / "algorithms" / "tinycd"
-if str(ALGO_DIR) not in sys.path:
-    sys.path.insert(0, str(ALGO_DIR))
 
-from inference import TinyCD  # noqa: E402
+from algorithms.tinycd.inference import TinyCD  # noqa: E402
 
 # 能力画像（docs/capability-profile.md v0.1 草案）
 CAPABILITY = {

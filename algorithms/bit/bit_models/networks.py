@@ -7,13 +7,9 @@ from torch.optim import lr_scheduler
 import functools
 from einops import rearrange
 
-import models
-from models.help_funcs import Transformer, TransformerDecoder, TwoLayerConv2d
-from models.ChangeFormer import ChangeFormerV1, ChangeFormerV2, ChangeFormerV3, ChangeFormerV4, ChangeFormerV5, ChangeFormerV6
-from models.SiamUnet_diff import SiamUnet_diff
-from models.SiamUnet_conc import SiamUnet_conc
-from models.Unet import Unet
-from models.DTCDSCN import CDNet34
+import bit_models
+from bit_models.help_funcs import Transformer, TransformerDecoder, TwoLayerConv2d
+
 
 ###############################################################################
 # Helper Functions
@@ -140,45 +136,6 @@ def define_G(args, init_type='normal', init_gain=0.02, gpu_ids=[]):
         net = BASE_Transformer(input_nc=3, output_nc=2, token_len=4, resnet_stages_num=4,
                              with_pos='learned', enc_depth=1, dec_depth=8, decoder_dim_head=8)
 
-    elif args.net_G == 'ChangeFormerV1':
-        net = ChangeFormerV1() #ChangeFormer with Transformer Encoder and Convolutional Decoder
-    
-    elif args.net_G == 'ChangeFormerV2':
-        net = ChangeFormerV2() #ChangeFormer with Transformer Encoder and Convolutional Decoder
-
-    elif args.net_G == 'ChangeFormerV3':
-        net = ChangeFormerV3() #ChangeFormer with Transformer Encoder and Convolutional Decoder (Fuse)
-
-    elif args.net_G == 'ChangeFormerV4':
-        net = ChangeFormerV4() #ChangeFormer with Transformer Encoder and Convolutional Decoder (Fuse)
-    
-    elif args.net_G == 'ChangeFormerV5':
-        net = ChangeFormerV5(embed_dim=args.embed_dim) #ChangeFormer with Transformer Encoder and Convolutional Decoder (Fuse)
-
-    elif args.net_G == 'ChangeFormerV6':
-        net = ChangeFormerV6(embed_dim=args.embed_dim) #ChangeFormer with Transformer Encoder and Convolutional Decoder (Fuse)
-    
-    elif args.net_G == "SiamUnet_diff":
-        #Implementation of ``Fully convolutional siamese networks for change detection''
-        #Code copied from: https://github.com/rcdaudt/fully_convolutional_change_detection
-        net = SiamUnet_diff(input_nbr=3, label_nbr=2)
-
-    elif args.net_G == "SiamUnet_conc":
-        #Implementation of ``Fully convolutional siamese networks for change detection''
-        #Code copied from: https://github.com/rcdaudt/fully_convolutional_change_detection
-        net = SiamUnet_conc(input_nbr=3, label_nbr=2)
-
-    elif args.net_G == "Unet":
-        #Usually abbreviated as FC-EF = Image Level Concatenation
-        #Implementation of ``Fully convolutional siamese networks for change detection''
-        #Code copied from: https://github.com/rcdaudt/fully_convolutional_change_detection
-        net = Unet(input_nbr=3, label_nbr=2)
-    
-    elif args.net_G == "DTCDSCN":
-        #The implementation of the paper"Building Change Detection for Remote Sensing Images Using a Dual Task Constrained Deep Siamese Convolutional Network Model "
-        #Code copied from: https://github.com/fitzpchao/DTCDSCN
-        net = CDNet34(in_channels=3)
-
     else:
         raise NotImplementedError('Generator model name [%s] is not recognized' % args.net_G)
     return init_net(net, init_type, init_gain, gpu_ids)
@@ -199,14 +156,15 @@ class ResNet(torch.nn.Module):
         """
         super(ResNet, self).__init__()
         expand = 1
+        # 复现改动：checkpoint 会完整覆盖 resnet 权重，故无需下载 ImageNet 预训练（避免联网依赖）
         if backbone == 'resnet18':
-            self.resnet = models.resnet18(pretrained=True,
+            self.resnet = bit_models.resnet18(pretrained=False,
                                           replace_stride_with_dilation=[False,True,True])
         elif backbone == 'resnet34':
-            self.resnet = models.resnet34(pretrained=True,
+            self.resnet = bit_models.resnet34(pretrained=False,
                                           replace_stride_with_dilation=[False,True,True])
         elif backbone == 'resnet50':
-            self.resnet = models.resnet50(pretrained=True,
+            self.resnet = bit_models.resnet50(pretrained=False,
                                           replace_stride_with_dilation=[False,True,True])
             expand = 4
         else:
@@ -306,7 +264,7 @@ class BASE_Transformer(ResNet):
         mlp_dim = 2*dim
 
         self.with_pos = with_pos
-        if with_pos == 'learned':
+        if with_pos is 'learned':
             self.pos_embedding = nn.Parameter(torch.randn(1, self.token_len*2, 32))
         decoder_pos_size = 256//4
         self.with_decoder_pos = with_decoder_pos
@@ -337,9 +295,9 @@ class BASE_Transformer(ResNet):
 
     def _forward_reshape_tokens(self, x):
         # b,c,h,w = x.shape
-        if self.pool_mode == 'max':
+        if self.pool_mode is 'max':
             x = F.adaptive_max_pool2d(x, [self.pooling_size, self.pooling_size])
-        elif self.pool_mode == 'ave':
+        elif self.pool_mode is 'ave':
             x = F.adaptive_avg_pool2d(x, [self.pooling_size, self.pooling_size])
         else:
             x = x
@@ -405,8 +363,6 @@ class BASE_Transformer(ResNet):
         x = self.classifier(x)
         if self.output_sigmoid:
             x = self.sigmoid(x)
-        outputs = []
-        outputs.append(x)
-        return outputs
+        return x
 
 

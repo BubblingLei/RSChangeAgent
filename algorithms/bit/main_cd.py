@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 import torch
-from models.trainer import *
+from bit_models.trainer import *
 
 print(torch.cuda.is_available())
 
@@ -16,7 +16,7 @@ def train(args):
 
 
 def test(args):
-    from models.evaluator import CDEvaluator
+    from bit_models.evaluator import CDEvaluator
     dataloader = utils.get_loader(args.data_name, img_size=args.img_size,
                                   batch_size=args.batch_size, is_train=False,
                                   split='test')

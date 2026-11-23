@@ -2,7 +2,7 @@ from argparse import ArgumentParser
 
 import utils
 import torch
-from models.basic_model import CDEvaluator
+from cf_models.basic_model import CDEvaluator
 
 import os
 

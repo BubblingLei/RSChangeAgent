@@ -3,7 +3,7 @@ import os
 import torch
 
 from misc.imutils import save_image
-from models.networks import *
+from cf_models.networks import *
 
 
 class CDEvaluator():

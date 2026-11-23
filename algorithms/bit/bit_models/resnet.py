@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-# 复现改动：新版 torchvision 已移除 models.utils，load_state_dict_from_url 移到 torch.hub
+# 复现改动：新版 torchvision 已移除 bit_models.utils，load_state_dict_from_url 移到 torch.hub
 from torch.hub import load_state_dict_from_url
 
 

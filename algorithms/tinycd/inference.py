@@ -20,7 +20,7 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-from models.change_classifier import ChangeClassifier  # noqa: E402
+from tinycd_models.change_classifier import ChangeClassifier  # noqa: E402
 
 MEAN = [0.485, 0.456, 0.406]  # ImageNet 归一化
 STD = [0.229, 0.224, 0.225]
