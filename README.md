@@ -15,7 +15,7 @@ algorithms** — instead of running a fixed, hand-coded pipeline.
 |-----------|---------------------|
 | **Multi-tool agent** | 6 algorithms exposed as independent tools (`BaseAction`), orchestrated by a ReAct loop (lagent) with DeepSeek as the LLM |
 | **Tool contract & separation of concerns** | Every algorithm is split into *algorithm implementation* (standalone inference, framework-agnostic) and *tool adapter* (agent-facing). The algorithm never depends on the agent framework → swappable to MCP / LangChain without touching models |
-| **Multi-algorithm selection (多算法择优)** | Capability profiles (method family, output encoding, trained dataset, speed) let the agent choose the right algorithm per task — groundwork for "best-choice" scheduling |
+| **Multi-algorithm selection** | Capability profiles (method family, output encoding, trained dataset, speed) let the agent choose the right algorithm per task — groundwork for "best-choice" scheduling |
 | **Anti-hallucination safeguard** | Post-loop verification detects when the LLM claims a result without actually invoking any tool |
 | **Real multi-tool integration bug, fixed** | Bare module-name collisions (`inference` / `models`) across 5 vendored models — solved with package-based imports + unique model namespaces |
 
