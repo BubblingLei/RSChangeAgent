@@ -1,13 +1,11 @@
 """多算法择优演示：把 5 个变化检测工具注册进一个 Agent，让 LLM 选择。
 
-这是「多算法择优」的第一版骨架，包含：
-1. 统一注册：5 个算法工具（ChangeFormer/BIT/TinyCD/SNUNet/DDPM-CD）都注册进 Agent。
-2. 提示词分析：LLM 读 5 个工具描述，自己挑一个调用。
-3. 程序层兜底（反幻觉）：检查 Agent 是否真的调用了工具；没调就警告。
-
 用法：
-    set DEEPSEEK_API_KEY=...
-    python tools/demo_multi_agent.py --question "..."
+    单次：python tools/demo_multi_agent.py --question "..."
+    交互：python tools/demo_multi_agent.py   （输入 exit 退出）
+
+交互时可以直接把图片路径粘进去，例如：
+    检测 D:/.../sample_02_A.png 和 D:/.../sample_02_B.png 之间的建筑变化
 """
 from __future__ import annotations
 
@@ -31,11 +29,10 @@ from ddpm_cd_tool import DDPMCDTool  # noqa: E402
 from snunet_tool import SNUNetTool  # noqa: E402
 from tinycd_tool import TinyCDTool  # noqa: E402
 
-# 这 5 个名字 = 各工具的 __tool_name__，用于反幻觉检查
 TOOL_NAMES = {"changeformer", "bit", "tinycd", "snunet", "ddpm_cd"}
 
 
-def build_agent() -> tuple[ReAct, list]:
+def build_agent() -> ReAct:
     api_key = os.environ.get("DEEPSEEK_API_KEY")
     if not api_key:
         raise SystemExit("请设置环境变量 DEEPSEEK_API_KEY")
@@ -45,30 +42,53 @@ def build_agent() -> tuple[ReAct, list]:
         openai_api_base=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/chat/completions"),
     )
     tools = [ChangeFormerTool(), BITTool(), TinyCDTool(), SNUNetTool(), DDPMCDTool()]
-    return ReAct(llm=llm, action_executor=ActionExecutor(actions=tools)), tools
+    return ReAct(llm=llm, action_executor=ActionExecutor(actions=tools))
+
+
+def run_turn(chatbot: ReAct, history: list) -> str:
+    """跑一轮，打印工具调用情况，返回最终回答。"""
+    result = chatbot.chat(history)
+    tool_calls = [a for a in result.actions if a.type in TOOL_NAMES]
+    if tool_calls:
+        for a in tool_calls:
+            print(f"    [工具调用] {a.type} -> {a.state}")
+    else:
+        print("    [警告] 未调用任何变化检测工具（可能是幻觉）")
+    return result.response
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="多算法择优演示")
-    parser.add_argument("--question", required=True)
+    parser.add_argument("--question", default=None, help="单次提问（不提供则进入交互模式）")
     args = parser.parse_args()
 
-    chatbot, _ = build_agent()
-    history = [dict(role="user", content=args.question)]
-    result = chatbot.chat(history)
+    chatbot = build_agent()
 
-    # 反幻觉检查：哪些工具被真正调用了
-    tool_calls = [a for a in result.actions if a.type in TOOL_NAMES]
+    if args.question:
+        history = [dict(role="user", content=args.question)]
+        print(run_turn(chatbot, history))
+        return
 
-    print("\n=== 实际调用的工具 ===")
-    if tool_calls:
-        for a in tool_calls:
-            print(f"  工具: {a.type} | 状态: {a.state}")
-    else:
-        print("  [警告] 未调用任何变化检测工具 —— 可能是 LLM 幻觉（声称有结果却没调工具）")
-
-    print("\n=== Agent 回答 ===")
-    print(result.response)
+    # 交互模式
+    print("=" * 50)
+    print("多算法择优 Agent 已启动（5 个变化检测算法可选）")
+    print("输入 exit 退出。可以直接粘图片路径提问。")
+    print("=" * 50)
+    history = []
+    while True:
+        try:
+            user_input = input("\n你: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if user_input.lower() in ("exit", "quit", "q"):
+            break
+        if not user_input:
+            continue
+        history.append(dict(role="user", content=user_input))
+        print("Agent 思考中...")
+        response = run_turn(chatbot, history)
+        history.append(dict(role="assistant", content=response))
+        print("\nAgent:", response)
 
 
 if __name__ == "__main__":
