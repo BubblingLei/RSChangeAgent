@@ -1,180 +1,111 @@
-<div align="center">
-    
-<h1><a href="https://ieeexplore.ieee.org/document/10591792">Change-Agent: Toward Interactive Comprehensive Remote Sensing Change Interpretation and Analysis</a></h1>
+# RS Change-Review Agent
 
-**[Chenyang Liu](https://chen-yang-liu.github.io/), [Keyan Chen](https://kyanchen.github.io), [Haotian Zhang](https://scholar.google.com/citations?user=c7uR6NUAAAAJ), [Zipeng Qi](https://scholar.google.com/citations?user=KhMtmBsAAAAJ), [Zhengxia Zou](https://scholar.google.com.hk/citations?hl=en&user=DzwoyZsAAAAJ), and [Zhenwei Shi*✉](https://scholar.google.com.hk/citations?hl=en&user=kNhFWQIAAAAJ)**
+An **LLM-driven multi-tool agent** for remote-sensing change detection. Given two
+bi-temporal images, the agent **autonomously selects** among **6 change-detection
+algorithms** — instead of running a fixed, hand-coded pipeline.
 
-<div align="center">
-  <img src="resource/Change_Agent.png" width="400"/>
-</div>
-</div>
+> **LLM as the brain, specialized models as the eyes.**
+> ReAct loop + 6 tools, orchestrated by DeepSeek.
 
-## Share us a :star: if you're interested in this repo
+---
 
-Official PyTorch implementation of the paper: "**Change-Agent: Toward Interactive Comprehensive Remote Sensing Change Interpretation and Analysis**" in [[IEEE](https://ieeexplore.ieee.org/document/10591792)]  ***(Accepted by IEEE TGRS 2024)***
+## ✨ Why this project (Agent Engineering Highlights)
 
-## 🥳News
+| Highlight | What it demonstrates |
+|-----------|---------------------|
+| **Multi-tool agent** | 6 algorithms exposed as independent tools (`BaseAction`), orchestrated by a ReAct loop (lagent) with DeepSeek as the LLM |
+| **Tool contract & separation of concerns** | Every algorithm is split into *algorithm implementation* (standalone inference, framework-agnostic) and *tool adapter* (agent-facing). The algorithm never depends on the agent framework → swappable to MCP / LangChain without touching models |
+| **Multi-algorithm selection (多算法择优)** | Capability profiles (method family, output encoding, trained dataset, speed) let the agent choose the right algorithm per task — groundwork for "best-choice" scheduling |
+| **Anti-hallucination safeguard** | Post-loop verification detects when the LLM claims a result without actually invoking any tool |
+| **Real multi-tool integration bug, fixed** | Bare module-name collisions (`inference` / `models`) across 5 vendored models — solved with package-based imports + unique model namespaces |
 
-- 2024-06: The code is **available**.
-- 2024-03: The paper is **available**.
-- 🔥 Our survey "**Remote Sensing Temporal Vision-Language Models: A Comprehensive Survey": [Arxiv](https://arxiv.org/abs/2412.02573) || [Github](https://github.com/Chen-Yang-Liu/Awesome-RS-Temporal-VLM)** 🔥 
-
-## Table of Contents
-- [LEVIR-MCI dataset](#LEVIR-MCI-dataset)
-- [Training of MCI model](#Training-of-the-multi-level-change-interpretation-model)
-- [Construction of Change-Agent](#Construction-of-Change-Agent)
-- [Citation](#Citation)
-
-## LEVIR-MCI dataset 
-- Download the LEVIR_MCI dataset: [LEVIR-MCI](https://huggingface.co/datasets/lcybuaa/LEVIR-MCI/tree/main) (**Available Now!**).
-- This dataset is an extension of our previously established [LEVIR-CC dataset](https://github.com/Chen-Yang-Liu/RSICC). It contains bi-temporal images as well as diverse change detection masks and descriptive sentences. It provides a crucial data foundation for exploring multi-task learning for change detection and change captioning.
-    <br>
-    <div align="center">
-      <img src="resource/dataset.png" width="800"/>
-    </div>
-    <br>
-## Training of the multi-level change interpretation model
-The overview of the MCI model:
-<br>
-    <div align="center">
-      <img src="resource/MCI_model.png" width="800"/>
-    </div>
-<br>
-
-### Preparation
-    
-- **Environment Installation**:
-    <details open>
-    
-    **Step 1**: Create a virtual environment named `Multi_change_env` and activate it.
-    ```python
-    conda create -n Multi_change_env python=3.9
-    conda activate Multi_change_env
-    ```
-    
-    **Step 2**: Download or clone the repository.
-    ```python
-    git clone https://github.com/Chen-Yang-Liu/Change-Agent.git
-    cd ./Change-Agent/Multi_change
-    ```
-    
-    **Step 3**: Install dependencies.
-    ```python
-    pip install -r requirements.txt
-    ```
-    </details>
-
-- **Download Dataset**:
-  <details open>
-      
-  Link: [LEVIR-MCI](https://huggingface.co/datasets/lcybuaa/LEVIR-MCI/tree/main). The data structure of LEVIR-MCI is organized as follows:
-
-    ```
-    ├─/DATA_PATH_ROOT/Levir-MCI-dataset/
-            ├─LevirCCcaptions.json
-            ├─images
-                 ├─train
-                 │  ├─A
-                 │  ├─B
-                 │  ├─label
-                 ├─val
-                 │  ├─A
-                 │  ├─B
-                 │  ├─label
-                 ├─test
-                 │  ├─A
-                 │  ├─B
-                 │  ├─label
-    ```
-    where folder ``A`` contains pre-phase images, folder ``B`` contains post-phase images, and folder ``label`` contains the change detection masks.
-    </details>
-
-- **Extract text files for the descriptions of each image pair in LEVIR-MCI**:
-
-    ```
-    python preprocess_data.py
-    ```
-    After that, you can find some generated files in `./data/LEVIR_MCI/`. 
-
-### Train
-Make sure you performed the data preparation above. Then, start training as follows:
-```python
-python train.py --train_goal 2 --data_folder /DATA_PATH_ROOT/Levir-MCI-dataset/images --savepath ./models_ckpt/
-```
-
-### Evaluate
-```python
-python test.py --data_folder /DATA_PATH_ROOT/Levir-MCI-dataset/images --checkpoint {checkpoint_PATH}
-```
-We recommend training the model 5 times to get an average score.
-
-### Inference
-Run inference to get started as follows:
-```python
-python predict.py --imgA_path {imgA_path} --imgB_path {imgA_path} --mask_save_path ./CDmask.png
-```
-You can modify ``--checkpoint`` of ``Change_Perception.define_args()`` in ``predict.py``. Then you can use your own model, of course, you also can download our pretrained model ``MCI_model.pth`` here: [[Hugging face](https://huggingface.co/lcybuaa/Change-Agent/tree/main)]. After that, put it in `./models_ckpt/`.
-
-
-
-## Construction of Change-Agent
-<br>
-<div align="center">
-      <img src="resource/overview_agent.png" width="800"/>
-</div>
-
-- **Agent Installation**:
-    ```python
-    cd ./Change-Agent/lagent-main
-    pip install -e .[all]
-    ```
-- **Run Agent**:
-
-    cd into the ``Multi_change`` folder:
-    ```python
-    cd ./Change-Agent/Multi_change
-    ```
-    (1) Run Agent Cli Demo:
-    ```bash
-    # You need to install streamlit first
-    # pip install streamlit
-    python try_chat.py
-    ```
-        
-    (2) Run Agent Web Demo:
-    ```bash
-    # You need to install streamlit first
-    # pip install streamlit
-    streamlit run react_web_demo.py
-    ```
-    <br>
-    <div align="center">
-          <img src="resource/web.png"/>
-    </div>
-
-## Citation
-If you find this paper useful in your research, please consider citing:
-```
-@ARTICLE{Liu_Change_Agent,
-  author={Liu, Chenyang and Chen, Keyan and Zhang, Haotian and Qi, Zipeng and Zou, Zhengxia and Shi, Zhenwei},
-  journal={IEEE Transactions on Geoscience and Remote Sensing}, 
-  title={Change-Agent: Toward Interactive Comprehensive Remote Sensing Change Interpretation and Analysis}, 
-  year={2024},
-  volume={},
-  number={},
-  pages={1-1},
-  keywords={Remote sensing;Feature extraction;Semantics;Transformers;Roads;Earth;Task analysis;Interactive Change-Agent;change captioning;change detection;multi-task learning;large language model},
-  doi={10.1109/TGRS.2024.3425815}}
+## 🧠 Architecture
 
 ```
+User: "detect building changes between T1 and T2"
+        │
+        ▼
+┌──────────────────────────────────────────────┐
+│  Brain = LLM (DeepSeek via GPTAPI)           │
+│  ReAct loop: Thought → Action → Observation  │
+└──────────────┬───────────────────────────────┘
+               │  ActionExecutor picks a tool
+               ▼
+┌──────────────────────────────────────────────┐
+│  6 change-detection tools (BaseAction)       │
+│  MCI · ChangeFormer · BIT · TinyCD           │
+│  SNUNet · DDPM-CD                            │
+└──────────────┬───────────────────────────────┘
+               │  each tool → algorithm + adapter
+               ▼
+┌──────────────────────────────────────────────┐
+│  Algorithm layer (standalone, framework-free)│
+│  inference.py → mask (0=unchanged, 1=change) │
+└──────────────────────────────────────────────┘
+```
 
-## Acknowledgement
-Thanks to the following repository:
+**Two-layer design per algorithm** (see `docs/tool-contract.md`):
 
-[RSICCformer](https://github.com/Chen-Yang-Liu/RSICC); [Chg2Cap](https://github.com/ShizhenChang/Chg2Cap); [lagent](https://github.com/InternLM/lagent)
+```
+algorithms/<name>/inference.py   # algorithm: model loading + inference, runs standalone
+tools/<name>_tool.py             # adapter: BaseAction, input validation, contract result
+```
 
-## License
-This repo is distributed under [MIT License](https://github.com/Chen-Yang-Liu/Change-Agent/blob/main/LICENSE.txt). The code can be used for academic purposes only.
+## 🗂️ The 6 Algorithms
 
-## Contact Us
-If you have any other questions❓, please contact us in time 👬
+| Algorithm | Architecture | Output | Weights |
+|-----------|-------------|--------|---------|
+| MCI (paper baseline) | SegFormer + Transformer | 3-class + caption | 913 MB |
+| ChangeFormer | Transformer (Siamese) | binary | 492 MB |
+| BIT | Transformer (bi-temporal) | binary | 60 MB |
+| TinyCD | Lightweight CNN (EfficientNet) | binary | 1.3 MB |
+| SNUNet | CNN (dense Siamese) | binary | 40 MB |
+| DDPM-CD | Diffusion + change head | binary | 1.75 GB |
+
+## 🛠️ Tech Stack
+
+`Python` · `PyTorch` · `lagent` (agent framework) · `DeepSeek API` · `HuggingFace` · `torchvision`
+
+## 🚀 Quick Start
+
+```bash
+# 1. environment (Python 3.9 + CUDA torch)
+conda create -n change_agent python=3.9 -y
+conda activate change_agent
+pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu121
+pip install einops timm opencv-python numpy scikit-image imageio tqdm pandas
+cd lagent-main && pip install -e . && cd ..
+
+# 2. download each algorithm's weights (see algorithms/<name>/WEIGHTS.md)
+
+# 3. set the LLM API key
+set DEEPSEEK_API_KEY=sk-...
+
+# 4. run the multi-algorithm agent
+python tools/demo_multi_agent.py
+```
+
+## 📁 Directory Structure
+
+```
+├── algorithms/            # 5 change-detection algorithms (algorithm layer)
+│   ├── changeformer/      #   + inference.py + WEIGHTS.md
+│   ├── bit/
+│   ├── tinycd/
+│   ├── snunet/
+│   └── ddpm_cd/
+├── tools/                 # tool adapters (BaseAction) + demo scripts
+│   ├── *_tool.py          #   one adapter per algorithm
+│   └── demo_multi_agent.py#   5-tool agent + anti-hallucination check
+├── docs/
+│   ├── tool-contract.md   #   tool integration contract (algorithm/adapter split)
+│   └── capability-profile.md # capability metadata for algorithm selection
+├── Multi_change/          # MCI (the original paper's model)
+└── lagent-main/           # the lagent agent framework (vendored)
+```
+
+## 📝 Notes
+
+- This is a **research project** (remote-sensing intelligent agent) jointly developed by a team; the multi-algorithm agent, tool contract, capability profiles and the collision fix are my primary contributions.
+- Weights are **not committed** (large); each algorithm ships a `WEIGHTS.md` with download + SHA-256 verification.
+- Model selection is currently prompt-driven (LLM reads tool descriptions); a programmatic nearest-neighbor (data-similarity) selector is planned.
